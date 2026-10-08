@@ -33,12 +33,14 @@ function harness(html, reject = false, delayed = false) {
     const modules = {
         jquery: $, 'core/modal': {create: options => create('default', options)},
         'core/modal_save_cancel': {create: options => create('save_cancel', options)},
+        'core_course/events': {manualCompletionToggled: 'manual-completion-toggled'},
+        'format_tiles/completion': {triggerCompletionChangedEvent() {}},
         'core/modal_events': {save: 'save', cancel: 'cancel', hidden: 'hidden'},
         'core/notification': {exception: e => {errors.push(e);}},
         'core/config': {wwwroot: 'http://127.0.0.1:8053', sesskey: 'synthetic-only'},
         'core/str': {get_string: () => deferred('Demo title')},
         'core/ajax': {call: args => args.map(() => deferred({icons: '{"star":"Star"}', status: true}))},
-        'core/templates': {render: name => deferred(name.includes('icon_picker') ? '<div>Demo icons</div>' : '<div>Demo body</div>'),
+        'core/templates': {render: name => deferred(name.includes('icon_picker') ? '<div>Demo icons</div>' : name.includes('modal_header_btns') ? '<div class="embed-module-buttons"><button data-action="toggle-manual-completion">Complete</button><button class="other-control">Other</button></div>' : '<div>Demo body</div>'),
             runTemplateJS() {}},
         'core/fragment': {loadFragment: () => deferred('<p>Demo activity</p>', '')},
         'format_onetopic/oneline': {load() {}},
@@ -137,6 +139,35 @@ const activityHtml = '<div id="format-tiles-js-config"></div><div id="page"><ul>
             assert.equal(h.errors.length,1); h.setReject(false); h.$(click).trigger('click'); await flush();
             assert.equal(h.calls.length,2); assert.equal(h.modals.length,1);
             assert.ok(h.modals[0].shows>=1); h.close();
+        });
+    }
+    for (const mode of ['restore', 'deliberate-move', 'unfocused-click', 'hidden', 'one-shot']) {
+        await test(`Tiles completion focus guard ${mode}`, async () => {
+            const h = harness(activityHtml);
+            let visible = true;
+            h.$.expr.pseudos.visible = () => visible;
+            h.load('tiles', 'course_mod_modal').init(1, false, 'course-view-tiles', 0, false);
+            h.$('[data-action="launch-tiles-cm-modal"]').trigger('click'); await flush(); await flush();
+            const root = h.modals[0].root;
+            const old = root.find('[data-action="toggle-manual-completion"]')[0];
+            const other = root.find('.other-control')[0];
+            assert.ok(old && other);
+            if (mode !== 'unfocused-click') old.focus();
+            h.$(old).trigger('click');
+            const replacement = old.cloneNode(true); old.replaceWith(replacement);
+            assert.equal(h.$('body')[0].ownerDocument.activeElement, h.$('body')[0]);
+            if (mode === 'deliberate-move') other.focus();
+            if (mode === 'hidden') visible = false;
+            h.$(replacement).trigger('manual-completion-toggled');
+            const active = replacement.ownerDocument.activeElement;
+            if (mode === 'restore' || mode === 'one-shot') assert.equal(active, replacement);
+            else if (mode === 'deliberate-move') assert.equal(active, other);
+            else assert.equal(active, replacement.ownerDocument.body);
+            if (mode === 'one-shot') {
+                replacement.blur(); h.$(replacement).trigger('manual-completion-toggled');
+                assert.equal(replacement.ownerDocument.activeElement, replacement.ownerDocument.body);
+            }
+            h.close();
         });
     }
     console.log(JSON.stringify({node: process.version, tests: results, passed: true},null,2));
