@@ -27,9 +27,9 @@
  * @since       Moodle 3.3
  */
 
-define(["jquery", "core/modal_factory", "core/config", "core/templates", "core/notification", "core/ajax",
-        'core/fragment', "core/modal_events"],
-    function ($, modalFactory, config, Templates, Notification, ajax, Fragment, ModalEvents) {
+define(["jquery", "core/modal", "core/config", "core/templates", "core/notification", "core/ajax",
+        'core/fragment', "core/modal_events", 'core_course/events'],
+    function ($, Modal, config, Templates, Notification, ajax, Fragment, ModalEvents, CourseEvents) {
         "use strict";
 
         var loadingIconHtml;
@@ -101,11 +101,10 @@ define(["jquery", "core/modal_factory", "core/config", "core/templates", "core/n
                 cmId, moduleContextId, sectionNum, title, objectType,
                 completionEnabled, existingCompletionState, isManualCompletion, descriptionHTML
             ) {
-            modalFactory.create({
-                type: modalFactory.types.DEFAULT,
+            Modal.create({
                 title: title,
                 body: loadingIconHtml
-            }).done(function (modal) {
+            }).then(function (modal) {
                 modal.setLarge();
                 modal.show();
                 modal.setScrollable(true);
@@ -235,7 +234,21 @@ define(["jquery", "core/modal_factory", "core/config", "core/templates", "core/n
                     modalRoot.find(Selector.modalHeader).append(html);
                     modalRoot.find(Selector.closeBtn).detach().appendTo(modalRoot.find(Selector.embedModuleButtons));
                     const toggleCompletionSelector = '[data-action="toggle-manual-completion"]';
-                    modalRoot.find(toggleCompletionSelector).on('click', () => {
+                    let restoreCompletionFocus = false;
+                    // Core replaces the focused button after saving completion.
+                    // Preserve keyboard control without stealing focus the user moved elsewhere.
+                    modalRoot.on(CourseEvents.manualCompletionToggled, (event) => {
+                        if (restoreCompletionFocus && modalRoot.is(':visible') &&
+                                document.activeElement === document.body) {
+                            const button = event.target.closest(toggleCompletionSelector);
+                            if (button) {
+                                button.focus();
+                            }
+                        }
+                        restoreCompletionFocus = false;
+                    });
+                    modalRoot.on('click', toggleCompletionSelector, (event) => {
+                        restoreCompletionFocus = document.activeElement === event.currentTarget;
                         require(["format_tiles/completion"], function (completion) {
                             // In this case, core will handle the request to set the new completion value in the DB.
                             // We wait a moment to allow that to get a head start.
@@ -256,7 +269,7 @@ define(["jquery", "core/modal_factory", "core/config", "core/templates", "core/n
                 }, 500);
 
                 return true;
-            });
+            }).catch(Notification.exception);
             return false;
         };
 

@@ -31,6 +31,7 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
         "use strict";
 
         var modalStored;
+        var modalPromise;
         var stringStore = {pickAnIcon: ''};
         var iconSet = [];
         var recentPhotoSet = [];
@@ -39,8 +40,9 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
          * Get the available icon set and photo set and store them for later use.
          * @param {number}courseId
          * @param {function|undefined} callback what to do after.
+         * @param {function|undefined} reject Report a failed icon request.
          */
-        var getAndStoreIconSet = function(courseId, callback) {
+        var getAndStoreIconSet = function(courseId, callback, reject) {
             var photosPromises = ajax.call([{
                 methodname: "format_tiles_get_icon_set",
                 args: {courseid: courseId}
@@ -81,6 +83,9 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
                 }
             });
             photosPromises[0].fail(function (response) {
+                if (reject) {
+                    reject(response);
+                }
                 require(["core/log"], function(log) {
                     log.error("Fail when getting icon set");
                     log.debug(response);
@@ -282,7 +287,12 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
                 }, 1000);
             };
 
+            if (modalPromise) {
+                return;
+            }
+
             if (typeof modalStored !== "object") {
+                modalPromise = new Promise(function(resolve, reject) {
                 // We only have one modal per page which we recycle.  We don't have it yet so create it.
 
                 var renderModal = function() {
@@ -295,12 +305,11 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
                         tilenumbers: Array.from({length: maxNumberIcons + 1}, (e, i)=> i).filter((e) => e > 0),
                         wwwroot: config.wwwroot
                     }).done(function (iconsHTML) {
-                        require(["core/modal_factory"], function (modalFact) {
-                            modalFact.create({
-                                type: modalFact.types.DEFAULT,
+                        require(["core/modal"], function (Modal) {
+                            Modal.create({
                                 title: stringStore.pickAnIcon,
                                 body: iconsHTML
-                            }).done(function (modal) {
+                            }).then(function (modal) {
                                 modalStored = modal;
                                 modal.setLarge();
                                 modal.show();
@@ -355,15 +364,24 @@ define(["jquery", "core/templates", "core/ajax", "core/str", "core/notification"
                                     });
                                 }
                                 $(document).trigger('format-tiles-icon-picker-modal-created');
-                            });
-                        });
-                    });
+                                resolve(modal);
+                                return modal;
+                            }).catch(reject);
+                        }, reject);
+                    }).fail(reject);
                 };
                 if (iconSet.length <= 0) {
-                    getAndStoreIconSet(courseId, renderModal);
+                    getAndStoreIconSet(courseId, renderModal, reject);
                 } else {
                     renderModal();
                 }
+                }).then(function(modal) {
+                    modalPromise = null;
+                    return modal;
+                }).catch(function(error) {
+                    modalPromise = null;
+                    Notification.exception(error);
+                });
             } else {
                 // We already have the modal so recycle it instead of re-rendering.
                 modalStored.root.data("true-sectionid", sectionId);
