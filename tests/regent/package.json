@@ -2,6 +2,6 @@
   "private": true,
   "license": "GPL-3.0-or-later",
   "devDependencies": {
-    "jsdom": "26.0.0"
+    "jsdom": "26.1.0"
   }
 }
